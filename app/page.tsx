@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 const getSupabase = () =>
@@ -18,338 +18,316 @@ const BORDER = "#d1d5db";
 const TEXT = "#1a1a2e";
 const GREEN = "#2f6b3a";
 
-interface CallOff {
-  id: string;
-  officer_name: string;
-  employee_number: string;
-  post: string;
-  shift_date: string;
-  shift_start: string;
-  shift_end: string;
-  notice_type: string;
-  reason: string;
-  coverage_found: boolean;
-  coverage_name: string;
-  comments: string;
-  signature: string;
-  document_url: string;
-  submitted_at: string;
-  excusal_status: string;
-}
+export default function CallOffForm() {
+  const today = new Date().toISOString().split("T")[0];
 
-export default function CallOffRecords() {
-  const [authed, setAuthed] = useState(false);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loginError, setLoginError] = useState("");
-  const [loggingIn, setLoggingIn] = useState(false);
+  const [form, setForm] = useState({
+    officerName: "",
+    employeeNumber: "",
+    post: "",
+    shiftDate: today,
+    shiftStart: "",
+    shiftEnd: "",
+    noticeType: "",
+    reason: "",
+    otherReason: "",
+    coverageFound: "",
+    coverageName: "",
+    comments: "",
+    signature: "",
+  });
 
-  const [records, setRecords] = useState<CallOff[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState("all");
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [updating, setUpdating] = useState<string | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [copySuccess, setCopySuccess] = useState(false);
+  const [submittedData, setSubmittedData] = useState<{
+    name: string; post: string; shiftDate: string; shiftStart: string;
+    shiftEnd: string; noticeType: string; reason: string; timestamp: string;
+  } | null>(null);
 
-  useEffect(() => {
-    const supabase = getSupabase();
-    supabase.auth.getUser().then(({ data }) => {
-      if (data.user) {
-        setAuthed(true);
-        loadRecords();
-      }
-      setAuthLoading(false);
-    });
-  }, []);
+  const set = (field: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
+    setForm((f) => ({ ...f, [field]: e.target.value }));
 
-  const loadRecords = async () => {
-    setLoading(true);
-    const supabase = getSupabase();
-    const { data } = await supabase
-      .from("calloff_submissions")
-      .select("*")
-      .order("submitted_at", { ascending: false });
-    setRecords(data || []);
-    setLoading(false);
-  };
-
-  const handleLogin = async () => {
-    if (!email || !password) return;
-    setLoggingIn(true);
-    setLoginError("");
-    const supabase = getSupabase();
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      setLoginError("Invalid email or password.");
-      setLoggingIn(false);
-      return;
-    }
-    setAuthed(true);
-    loadRecords();
-    setLoggingIn(false);
-  };
-
-  const handleSignOut = async () => {
-    const supabase = getSupabase();
-    await supabase.auth.signOut();
-    setAuthed(false);
-    setRecords([]);
-  };
-
-  const updateExcusalStatus = async (id: string, status: string) => {
-    setUpdating(id + status);
-    const supabase = getSupabase();
-    const { error } = await supabase
-      .from("calloff_submissions")
-      .update({ excusal_status: status })
-      .eq("id", id);
-    if (!error) {
-      setRecords((prev) => prev.map((r) => r.id === id ? { ...r, excusal_status: status } : r));
-    }
-    setUpdating(null);
-  };
+  const setNoticeType = (val: string) => () =>
+    setForm((f) => ({ ...f, noticeType: f.noticeType === val ? "" : val }));
 
   const formatDate = (iso: string) => {
     if (!iso) return "";
-    const d = iso.split("T")[0];
-    const [y, m, day] = d.split("-");
-    return `${m}/${day}/${y}`;
+    const [y, m, d] = iso.split("-");
+    return `${m}/${d}/${y}`;
   };
 
-  const formatDateTime = (iso: string) => {
-    if (!iso) return "";
-    return new Date(iso).toLocaleString("en-US", {
-      month: "numeric", day: "numeric", year: "numeric",
-      hour: "numeric", minute: "2-digit", hour12: true,
+  const required = form.officerName && form.post && form.shiftDate && form.shiftStart && form.noticeType && form.reason && form.signature;
+
+  const handleSubmit = async () => {
+    if (!required) return;
+    setSubmitting(true);
+    setError("");
+
+    const supabase = getSupabase();
+    const timestamp = new Date().toISOString();
+    let docUrl = null;
+
+    if (file) {
+      const fileExt = file.name.split(".").pop();
+      const fileName = `calloff-${Date.now()}-${form.officerName.replace(/\s+/g, "-")}.${fileExt}`;
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from("calloff-documents")
+        .upload(fileName, file, { cacheControl: "3600", upsert: false });
+      if (!uploadError && uploadData) {
+        const { data: urlData } = supabase.storage.from("calloff-documents").getPublicUrl(fileName);
+        docUrl = urlData?.publicUrl || null;
+      }
+    }
+
+    const reason = form.reason === "Other" ? form.otherReason : form.reason;
+
+    const { error: dbError } = await supabase.from("calloff_submissions").insert([{
+      officer_name: form.officerName,
+      employee_number: form.employeeNumber || null,
+      post: form.post,
+      shift_date: form.shiftDate,
+      shift_start: form.shiftStart,
+      shift_end: form.shiftEnd || null,
+      notice_type: form.noticeType,
+      reason: reason,
+      coverage_found: form.coverageFound === "yes",
+      coverage_name: form.coverageName || null,
+      comments: form.comments || null,
+      signature: form.signature,
+      document_url: docUrl,
+      submitted_at: timestamp,
+    }]);
+
+    if (dbError) {
+      setError("Submission failed. Please try again.");
+      setSubmitting(false);
+      return;
+    }
+
+    setSubmittedData({
+      name: form.officerName, post: form.post, shiftDate: formatDate(form.shiftDate),
+      shiftStart: form.shiftStart, shiftEnd: form.shiftEnd, noticeType: form.noticeType,
+      reason: reason,
+      timestamp: new Date(timestamp).toLocaleString("en-US", { month: "numeric", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true }),
+    });
+
+    setSubmitted(true);
+    setSubmitting(false);
+  };
+
+  const getCopyMessage = () => {
+    if (!submittedData) return "";
+    return `CALL-OFF NOTICE — ${submittedData.shiftDate}
+
+Name: ${submittedData.name}
+Post: ${submittedData.post}
+Shift: ${submittedData.shiftStart}${submittedData.shiftEnd ? ` – ${submittedData.shiftEnd}` : ""}
+Reason: ${submittedData.reason}
+Notice Type: ${submittedData.noticeType}
+Submitted: ${submittedData.timestamp}
+
+This call-off was officially submitted via the AUS portal.`;
+  };
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(getCopyMessage()).then(() => {
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2500);
     });
   };
 
-  const excusalBadge = (status: string) => {
-    const s = status || "pending";
-    const styles: Record<string, { bg: string; color: string; border: string; label: string }> = {
-      pending: { bg: "#fff3cd", color: "#92400e", border: "#fcd34d", label: "Pending Review" },
-      excused: { bg: "#e8f5e9", color: GREEN, border: "#a5d6a7", label: "Excused" },
-      unexcused: { bg: "#fef2f2", color: "#b91c1c", border: "#fca5a5", label: "Unexcused" },
-    };
-    const style = styles[s] || styles.pending;
-    return (
-      <span style={{ fontSize: "0.68rem", fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: style.bg, color: style.color, border: `1px solid ${style.border}`, textTransform: "uppercase" as const, letterSpacing: "0.04em" }}>
-        {style.label}
-      </span>
-    );
+  const handleReset = () => {
+    setForm({ officerName: "", employeeNumber: "", post: "", shiftDate: today, shiftStart: "", shiftEnd: "", noticeType: "", reason: "", otherReason: "", coverageFound: "", coverageName: "", comments: "", signature: "" });
+    setFile(null); setSubmitted(false); setSubmittedData(null); setError("");
   };
 
-  const filtered = records.filter((r) => {
-    const matchesSearch = !search ||
-      r.officer_name?.toLowerCase().includes(search.toLowerCase()) ||
-      r.post?.toLowerCase().includes(search.toLowerCase()) ||
-      r.reason?.toLowerCase().includes(search.toLowerCase());
-    const matchesFilter =
-      filter === "all" ||
-      (filter === "less4" && r.notice_type?.includes("Less than")) ||
-      (filter === "4plus" && r.notice_type?.includes("4+")) ||
-      (filter === "docs" && !!r.document_url) ||
-      (filter === "pending" && (!r.excusal_status || r.excusal_status === "pending")) ||
-      (filter === "excused" && r.excusal_status === "excused") ||
-      (filter === "unexcused" && r.excusal_status === "unexcused");
-    return matchesSearch && matchesFilter;
-  });
-
-  const less4 = records.filter((r) => r.notice_type?.includes("Less than")).length;
-  const withDocs = records.filter((r) => !!r.document_url).length;
-  const pendingReview = records.filter((r) => !r.excusal_status || r.excusal_status === "pending").length;
-  const unexcused = records.filter((r) => r.excusal_status === "unexcused").length;
-
-  // Login screen
-  if (authLoading) return (
-    <div style={{ minHeight: "100vh", background: SOFT_BG, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif" }}>
-      <div style={{ color: MUTED, fontSize: "0.85rem" }}>Loading...</div>
-    </div>
-  );
-
-  if (!authed) return (
-    <div style={{ minHeight: "100vh", background: SOFT_BG, fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem 1rem" }}>
-      <div style={{ maxWidth: 420, width: "100%", background: WHITE, borderRadius: 4, boxShadow: "0 2px 16px rgba(31,78,121,0.10)", overflow: "hidden" }}>
-        <div style={{ background: NAVY, padding: "1.25rem 2rem" }}>
-          <div style={{ color: WHITE, fontSize: "1rem", fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-            Allied<span style={{ fontWeight: 300 }}>Universal</span><sup style={{ fontSize: "0.5rem", fontWeight: 300, marginLeft: 1 }}>™</sup>
+  if (submitted && submittedData) {
+    return (
+      <div style={{ minHeight: "100vh", background: SOFT_BG, fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", padding: "2rem 1rem", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ maxWidth: 560, width: "100%", background: WHITE, borderRadius: 4, boxShadow: "0 2px 16px rgba(31,78,121,0.10)", overflow: "hidden" }}>
+          <div style={{ background: NAVY, padding: "1.25rem 2rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <div style={{ color: WHITE, fontSize: "1rem", fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase" }}>Allied<span style={{ fontWeight: 300 }}>Universal</span><sup style={{ fontSize: "0.5rem", fontWeight: 300, marginLeft: 1 }}>™</sup></div>
+              <div style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.68rem", marginTop: 2 }}>Security Services</div>
+            </div>
+            <div style={{ textAlign: "right" }}><div style={{ color: WHITE, fontSize: "0.88rem", fontWeight: 700 }}>Call-Off Submitted</div></div>
           </div>
-          <div style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.68rem", marginTop: 2 }}>Security Services · Supervisor Portal</div>
-        </div>
-        <div style={{ padding: "2rem" }}>
-          <div style={{ fontSize: "1rem", fontWeight: 700, color: TEXT, marginBottom: 4 }}>Sign In</div>
-          <div style={{ fontSize: "0.78rem", color: MUTED, marginBottom: "1.5rem" }}>Call-Off Records — Supervisor Access Only</div>
-          <div style={{ marginBottom: "1rem" }}>
-            <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Email</div>
-            <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="your@aus.com" style={inputStyle} onKeyDown={(e) => e.key === "Enter" && handleLogin()} />
-          </div>
-          <div style={{ marginBottom: "1.25rem" }}>
-            <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Password</div>
-            <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="••••••••" style={inputStyle} onKeyDown={(e) => e.key === "Enter" && handleLogin()} />
-          </div>
-          {loginError && <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 4, padding: "0.6rem 0.75rem", fontSize: "0.82rem", color: "#b91c1c", marginBottom: "1rem" }}>{loginError}</div>}
-          <button onClick={handleLogin} disabled={!email || !password || loggingIn} style={{ background: email && password && !loggingIn ? NAVY : "#9ca3af", color: WHITE, border: "none", borderRadius: 4, padding: "0.7rem", fontSize: "0.85rem", fontWeight: 700, cursor: email && password && !loggingIn ? "pointer" : "not-allowed", fontFamily: "inherit", textTransform: "uppercase", width: "100%", letterSpacing: "0.04em" }}>
-            {loggingIn ? "Signing in..." : "Sign In"}
-          </button>
-          <div style={{ textAlign: "center", marginTop: "1rem" }}>
-            <a href={`${window.location.origin}/forgot-password`} style={{ fontSize: "0.78rem", color: NAVY, textDecoration: "none" }}>Forgot password?</a>
+          <div style={{ padding: "1.5rem 2rem" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1.25rem" }}>
+              <div style={{ width: 44, height: 44, borderRadius: "50%", background: "#e8f5e9", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2f6b3a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: "0.95rem", color: TEXT }}>Call-off recorded</div>
+                <div style={{ fontSize: "0.78rem", color: MUTED }}>{submittedData.timestamp}</div>
+              </div>
+            </div>
+            <div style={{ background: SOFT_BG, border: `1px solid ${BORDER}`, borderRadius: 4, padding: "1rem", marginBottom: "1rem", fontSize: "0.82rem", color: TEXT, lineHeight: 1.7, whiteSpace: "pre-wrap", fontFamily: "monospace" }}>
+              {getCopyMessage()}
+            </div>
+            <button onClick={handleCopy} style={{ ...btnStyle(copySuccess ? GREEN : NAVY), marginBottom: "0.75rem", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+              {copySuccess ? "✓ Copied!" : "Copy Message"}
+            </button>
+            <a href={`sms:${encodeURIComponent(getCopyMessage())}`} style={{ ...btnStyle("#374151"), display: "flex", alignItems: "center", justifyContent: "center", gap: 8, textDecoration: "none", marginBottom: "0.75rem" }}>
+              Open in Messages
+            </a>
+            <div style={{ fontSize: "0.75rem", color: MUTED, textAlign: "center", marginBottom: "1rem", lineHeight: 1.5 }}>
+              Copy the message above and paste it to your supervisor in any chat app, or tap "Open in Messages" if you're on iPhone.
+            </div>
+            <button onClick={handleReset} style={{ ...btnStyle("transparent"), color: MUTED, border: `1px solid ${BORDER}`, fontSize: "0.78rem" }}>Submit Another</button>
           </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  }
 
   return (
     <div style={{ minHeight: "100vh", background: SOFT_BG, fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", padding: "2rem 1rem" }}>
-      <div style={{ maxWidth: 900, margin: "0 auto" }}>
-
-        <div style={{ background: NAVY, padding: "1.25rem 2rem", borderRadius: "4px 4px 0 0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div style={{ maxWidth: 680, margin: "0 auto", background: WHITE, borderRadius: 4, boxShadow: "0 2px 16px rgba(31,78,121,0.10)", overflow: "hidden" }}>
+        <div style={{ background: NAVY, padding: "1.25rem 2rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
-            <div style={{ color: WHITE, fontSize: "1rem", fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-              Allied<span style={{ fontWeight: 300 }}>Universal</span><sup style={{ fontSize: "0.5rem", fontWeight: 300, marginLeft: 1 }}>™</sup>
-            </div>
-            <div style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.68rem", marginTop: 2 }}>Security Services · Supervisor Portal</div>
+            <div style={{ color: WHITE, fontSize: "1rem", fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase" }}>Allied<span style={{ fontWeight: 300 }}>Universal</span><sup style={{ fontSize: "0.5rem", fontWeight: 300, marginLeft: 1 }}>™</sup></div>
+            <div style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.68rem", marginTop: 2 }}>Security Services</div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "1.25rem" }}>
-            <a href="https://supervisor.xing.wtf/dashboard" style={{ color: "rgba(255,255,255,0.7)", fontSize: "0.75rem", textDecoration: "none", display: "flex", alignItems: "center", gap: 4 }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-              Dashboard
-            </a>
-            <div>
-              <div style={{ color: WHITE, fontSize: "0.95rem", fontWeight: 700 }}>Call-Off Records</div>
-              <div style={{ color: "rgba(255,255,255,0.7)", fontSize: "0.75rem" }}>Washington University</div>
-            </div>
-            <button onClick={handleSignOut} style={{ background: "none", border: "1px solid rgba(255,255,255,0.3)", color: WHITE, borderRadius: 4, padding: "0.3rem 0.75rem", fontSize: "0.75rem", cursor: "pointer", fontFamily: "inherit" }}>
-              Sign Out
-            </button>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ color: WHITE, fontSize: "0.9rem", fontWeight: 700 }}>Call-Off Notice</div>
+            <div style={{ color: "rgba(255,255,255,0.7)", fontSize: "0.75rem" }}>Washington University</div>
           </div>
         </div>
 
-        <div style={{ background: DARK, padding: "0.75rem 2rem", display: "flex", gap: "2rem", flexWrap: "wrap", alignItems: "center" }}>
-          {[
-            ["Total", records.length],
-            ["Pending Review", pendingReview],
-            ["Unexcused", unexcused],
-            ["< 4 Hour Notice", less4],
-            ["With Documentation", withDocs],
-          ].map(([label, val]) => (
-            <div key={label as string}>
-              <div style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.65rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</div>
-              <div style={{ color: label === "Unexcused" ? "#fca5a5" : label === "Pending Review" ? "#fcd34d" : WHITE, fontSize: "1.1rem", fontWeight: 700 }}>{val}</div>
-            </div>
-          ))}
-        </div>
+        <div style={{ padding: "0 0 2rem" }}>
+          <div style={{ background: "#fef3c7", borderBottom: `1px solid #fcd34d`, padding: "0.75rem 2rem", fontSize: "0.78rem", color: "#92400e", fontWeight: 600, lineHeight: 1.5 }}>
+            ⚠ Calls-off with less than 4 hours advance notice may result in disciplinary action per AUS Attendance Policy.
+          </div>
 
-        <div style={{ background: WHITE, border: `1px solid ${BORDER}`, borderTop: "none", padding: "1rem 2rem", display: "flex", gap: "1rem", flexWrap: "wrap", alignItems: "center" }}>
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by officer, post, or reason..." style={{ flex: 1, minWidth: 200, padding: "0.45rem 0.75rem", border: `1px solid ${BORDER}`, borderRadius: 4, fontSize: "0.85rem", color: TEXT, background: "#fafbfc", outline: "none", fontFamily: "inherit" }} />
-          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-            {[["all","All"],["pending","Pending"],["excused","Excused"],["unexcused","Unexcused"],["4plus","4+ hr"],["less4","< 4hr"],["docs","With Docs"]].map(([val, label]) => (
-              <button key={val} onClick={() => setFilter(val)} style={{ padding: "0.4rem 0.9rem", borderRadius: 4, fontSize: "0.78rem", fontWeight: 700, border: `1px solid ${filter === val ? NAVY : BORDER}`, background: filter === val ? NAVY : WHITE, color: filter === val ? WHITE : MUTED, cursor: "pointer", fontFamily: "inherit" }}>
-                {label}
+          <SectionBar label="Officer Information" />
+          <div style={{ padding: "1.25rem 2rem 0" }}>
+            <Field label="Officer Name" value={form.officerName} onChange={set("officerName")} required />
+            <Row>
+              <Field label="Employee Number (optional)" value={form.employeeNumber} onChange={set("employeeNumber")} />
+              <Field label="Assigned Post" value={form.post} onChange={set("post")} placeholder="e.g. Greenway Walk" required />
+            </Row>
+          </div>
+
+          <SectionBar label="Shift Information" />
+          <div style={{ padding: "1.25rem 2rem 0" }}>
+            <Row>
+              <Field label="Date of Absence" value={form.shiftDate} onChange={set("shiftDate")} type="date" required />
+              <Field label="Shift Start Time" value={form.shiftStart} onChange={set("shiftStart")} type="time" required />
+              <Field label="Shift End Time" value={form.shiftEnd} onChange={set("shiftEnd")} type="time" />
+            </Row>
+            <Label>Notice Type <span style={{ color: "#b3261e" }}>*</span></Label>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", margin: "0.5rem 0 1.25rem" }}>
+              {[
+                ["4+ hours advance notice", "4+ hours in advance — standard call-off"],
+                ["Less than 4 hours notice", "Less than 4 hours — may result in Final Written Warning"],
+              ].map(([val, desc]) => (
+                <label key={val} onClick={setNoticeType(val)} style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", background: form.noticeType === val ? "#eef3f8" : SOFT_BG, border: `1.5px solid ${form.noticeType === val ? NAVY : BORDER}`, borderRadius: 4, padding: "0.65rem 1rem", userSelect: "none" as const }}>
+                  <div style={{ width: 17, height: 17, border: `2px solid ${form.noticeType === val ? NAVY : BORDER}`, borderRadius: "50%", background: form.noticeType === val ? NAVY : WHITE, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>
+                    {form.noticeType === val && <div style={{ width: 7, height: 7, borderRadius: "50%", background: WHITE }} />}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: "0.88rem", fontWeight: form.noticeType === val ? 700 : 400, color: TEXT }}>{val}</div>
+                    <div style={{ fontSize: "0.72rem", color: MUTED, marginTop: 1 }}>{desc}</div>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <SectionBar label="Reason for Absence" />
+          <div style={{ padding: "1.25rem 2rem 0" }}>
+            <Label>Reason <span style={{ color: "#b3261e" }}>*</span></Label>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem 1rem", margin: "0.5rem 0 1.25rem" }}>
+              {["Illness", "Family emergency", "Personal emergency", "Bereavement", "Medical appointment", "Other"].map((r) => (
+                <label key={r} onClick={() => setForm((f) => ({ ...f, reason: f.reason === r ? "" : r }))} style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", fontSize: "0.85rem", fontWeight: form.reason === r ? 700 : 400, color: form.reason === r ? NAVY : TEXT, userSelect: "none" as const, background: form.reason === r ? "#eef3f8" : SOFT_BG, border: `1.5px solid ${form.reason === r ? NAVY : BORDER}`, borderRadius: 4, padding: "0.4rem 0.75rem" }}>
+                  <div style={{ width: 14, height: 14, border: `2px solid ${form.reason === r ? NAVY : BORDER}`, borderRadius: 2, background: form.reason === r ? NAVY : WHITE, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    {form.reason === r && <svg width="8" height="8" viewBox="0 0 10 10" fill="none"><polyline points="1.5,5 4,7.5 8.5,2.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+                  </div>
+                  {r}
+                </label>
+              ))}
+            </div>
+            {form.reason === "Other" && <Field label="Please specify" value={form.otherReason} onChange={set("otherReason")} placeholder="Describe reason..." />}
+
+            <Label>Were you able to find coverage?</Label>
+            <div style={{ display: "flex", gap: "1rem", margin: "0.5rem 0 1rem" }}>
+              {[["yes", "Yes"], ["no", "No"]].map(([val, label]) => (
+                <label key={val} onClick={() => setForm((f) => ({ ...f, coverageFound: val }))} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: "0.88rem", fontWeight: form.coverageFound === val ? 700 : 400, color: TEXT, userSelect: "none" as const }}>
+                  <div style={{ width: 17, height: 17, border: `2px solid ${form.coverageFound === val ? NAVY : BORDER}`, borderRadius: "50%", background: form.coverageFound === val ? NAVY : WHITE, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    {form.coverageFound === val && <div style={{ width: 7, height: 7, borderRadius: "50%", background: WHITE }} />}
+                  </div>
+                  {label}
+                </label>
+              ))}
+            </div>
+            {form.coverageFound === "yes" && <Field label="Coverage Officer Name" value={form.coverageName} onChange={set("coverageName")} placeholder="Who is covering your shift?" />}
+
+            <Label>Additional Comments (optional)</Label>
+            <textarea value={form.comments} onChange={set("comments")} placeholder="Any additional information..." rows={3} style={{ width: "100%", boxSizing: "border-box" as const, padding: "0.6rem 0.75rem", border: `1px solid ${BORDER}`, borderRadius: 4, fontSize: "0.88rem", color: TEXT, background: "#fafbfc", fontFamily: "inherit", resize: "vertical" as const, marginTop: 4, marginBottom: "1.25rem" }} />
+
+            <Label>Supporting Documentation (optional)</Label>
+            <div style={{ fontSize: "0.72rem", color: MUTED, marginBottom: "0.5rem" }}>Required for absences of 3+ consecutive days. Accepted: JPG, PNG, PDF.</div>
+            <div style={{ border: `2px dashed ${file ? NAVY : BORDER}`, borderRadius: 4, padding: "1.25rem", textAlign: "center" as const, background: file ? "#eef3f8" : "#fafbfc", cursor: "pointer", marginBottom: "1.25rem" }} onClick={() => document.getElementById("doc-upload")?.click()}>
+              <input id="doc-upload" type="file" accept=".jpg,.jpeg,.png,.pdf" style={{ display: "none" }} onChange={(e) => setFile(e.target.files?.[0] || null)} />
+              {file ? (
+                <div style={{ fontSize: "0.85rem", color: NAVY, fontWeight: 600 }}>📎 {file.name}<button onClick={(e) => { e.stopPropagation(); setFile(null); }} style={{ background: "none", border: "none", color: MUTED, cursor: "pointer", marginLeft: 8, fontSize: "0.78rem" }}>Remove</button></div>
+              ) : (
+                <div style={{ fontSize: "0.82rem", color: MUTED }}>Tap to upload a photo or document</div>
+              )}
+            </div>
+          </div>
+
+          <SectionBar label="Signature" />
+          <div style={{ padding: "1.25rem 2rem 0" }}>
+            <div style={{ fontSize: "0.82rem", color: TEXT, lineHeight: 1.6, marginBottom: "1rem", background: SOFT_BG, border: `1px solid ${BORDER}`, borderLeft: `3px solid ${NAVY}`, borderRadius: 3, padding: "0.65rem 1rem" }}>
+              By signing below, I confirm that the information provided is accurate and that I have notified my supervisor of this absence in accordance with AUS attendance policy.
+            </div>
+            <Field label="Signature (type full name)" value={form.signature} onChange={set("signature")} placeholder="Full legal name" required />
+            {error && <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 4, padding: "0.75rem 1rem", fontSize: "0.82rem", color: "#b91c1c", marginBottom: "1rem" }}>{error}</div>}
+            <div style={{ marginTop: "0.5rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+              <button onClick={handleSubmit} disabled={!required || submitting} style={{ ...btnStyle(required && !submitting ? NAVY : "#9ca3af"), cursor: required && !submitting ? "pointer" : "not-allowed" }}>
+                {submitting ? "Submitting..." : "Submit Call-Off Notice"}
               </button>
-            ))}
+              {!required && <div style={{ fontSize: "0.75rem", color: MUTED, textAlign: "center" as const }}>Complete required fields: Name, Post, Date, Shift Start, Notice Type, Reason, and Signature</div>}
+            </div>
           </div>
-        </div>
 
-        {loading ? (
-          <div style={{ background: WHITE, border: `1px solid ${BORDER}`, borderTop: "none", padding: "2rem", textAlign: "center", color: MUTED, fontSize: "0.85rem" }}>Loading records...</div>
-        ) : filtered.length === 0 ? (
-          <div style={{ background: WHITE, border: `1px solid ${BORDER}`, borderTop: "none", padding: "2rem", textAlign: "center", color: MUTED, fontSize: "0.85rem" }}>No call-off records found.</div>
-        ) : (
-          filtered.map((r) => {
-            const isLess4 = r.notice_type?.includes("Less than");
-            const isExpanded = expanded === r.id;
-            const excusalStatus = r.excusal_status || "pending";
-
-            return (
-              <div key={r.id} style={{ background: WHITE, border: `1px solid ${BORDER}`, borderTop: "none" }}>
-                <div onClick={() => setExpanded(isExpanded ? null : r.id)} style={{ padding: "1rem 2rem", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem", flexWrap: "wrap", cursor: "pointer" }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: 4, flexWrap: "wrap" }}>
-                      <span style={{ fontWeight: 700, fontSize: "0.92rem", color: TEXT }}>{r.officer_name}</span>
-                      {excusalBadge(excusalStatus)}
-                      <span style={{ fontSize: "0.68rem", fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: isLess4 ? "#fef2f2" : "#e8f5e9", color: isLess4 ? "#b91c1c" : GREEN, border: `1px solid ${isLess4 ? "#fca5a5" : "#a5d6a7"}`, textTransform: "uppercase" as const, letterSpacing: "0.04em" }}>
-                        {isLess4 ? "< 4hr Notice" : "4+ hr Notice"}
-                      </span>
-                      {r.document_url && <span style={{ fontSize: "0.68rem", fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: "#eef3f8", color: NAVY, border: `1px solid #c3d4e8`, textTransform: "uppercase" as const }}>Doc Attached</span>}
-                    </div>
-                    <div style={{ fontSize: "0.78rem", color: MUTED }}>{r.post} &nbsp;·&nbsp; {formatDate(r.shift_date)}{r.shift_start && ` @ ${r.shift_start}`}{r.shift_end && ` – ${r.shift_end}`} &nbsp;·&nbsp; {r.reason}</div>
-                    <div style={{ fontSize: "0.72rem", color: MUTED, marginTop: 2 }}>Submitted: {formatDateTime(r.submitted_at)}</div>
-                  </div>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={MUTED} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s", flexShrink: 0 }}>
-                    <polyline points="9 18 15 12 9 6" />
-                  </svg>
-                </div>
-
-                {isExpanded && (
-                  <div style={{ padding: "0 2rem 1.5rem", borderTop: `1px solid ${BORDER}`, background: SOFT_BG }}>
-                    <div style={{ paddingTop: "1rem", marginBottom: "1.25rem" }}>
-                      <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.6rem" }}>Excusal Classification</div>
-                      <div style={{ display: "flex", gap: "0.5rem" }}>
-                        {[
-                          { val: "excused", label: "Excused", activeColor: GREEN, activeBg: "#e8f5e9", activeBorder: "#a5d6a7" },
-                          { val: "unexcused", label: "Unexcused", activeColor: "#b91c1c", activeBg: "#fef2f2", activeBorder: "#fca5a5" },
-                          { val: "pending", label: "Pending Review", activeColor: "#92400e", activeBg: "#fff3cd", activeBorder: "#fcd34d" },
-                        ].map(({ val, label, activeColor, activeBg, activeBorder }) => {
-                          const isActive = excusalStatus === val;
-                          const isLoadingBtn = updating === r.id + val;
-                          return (
-                            <button key={val} onClick={(e) => { e.stopPropagation(); updateExcusalStatus(r.id, val); }} disabled={!!updating} style={{ padding: "0.45rem 1rem", borderRadius: 4, fontSize: "0.78rem", fontWeight: 700, border: `1.5px solid ${isActive ? activeBorder : BORDER}`, background: isActive ? activeBg : WHITE, color: isActive ? activeColor : MUTED, cursor: updating ? "not-allowed" : "pointer", fontFamily: "inherit", transition: "all 0.15s", opacity: isLoadingBtn ? 0.6 : 1 }}>
-                              {isLoadingBtn ? "..." : (isActive ? `✓ ${label}` : label)}
-                            </button>
-                          );
-                        })}
-                      </div>
-                      {excusalStatus === "unexcused" && (
-                        <div style={{ marginTop: "0.6rem", background: "#fef2f2", border: "1px solid #fca5a5", borderLeft: "3px solid #b91c1c", borderRadius: 3, padding: "0.5rem 0.75rem", fontSize: "0.75rem", color: "#b91c1c", fontWeight: 600 }}>
-                          Unexcused absence — disciplinary action may apply per AUS attendance policy.
-                        </div>
-                      )}
-                    </div>
-
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem 2rem" }}>
-                      {[["Officer", r.officer_name],["Employee #", r.employee_number],["Post", r.post],["Shift Date", formatDate(r.shift_date)],["Shift Start", r.shift_start],["Shift End", r.shift_end],["Notice Type", r.notice_type],["Reason", r.reason],["Coverage Found", r.coverage_found ? "Yes" : "No"],["Coverage Officer", r.coverage_name],["Signature", r.signature],["Submitted", formatDateTime(r.submitted_at)]].map(([label, val]) => val ? (
-                        <div key={label}>
-                          <div style={{ fontSize: "0.65rem", fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.05em", color: MUTED, marginBottom: 2 }}>{label}</div>
-                          <div style={{ fontSize: "0.85rem", color: TEXT }}>{val}</div>
-                        </div>
-                      ) : null)}
-                    </div>
-
-                    {r.comments && (
-                      <div style={{ marginTop: "0.75rem" }}>
-                        <div style={{ fontSize: "0.65rem", fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.05em", color: MUTED, marginBottom: 2 }}>Comments</div>
-                        <div style={{ fontSize: "0.85rem", color: TEXT, background: WHITE, border: `1px solid ${BORDER}`, borderRadius: 3, padding: "0.5rem 0.75rem" }}>{r.comments}</div>
-                      </div>
-                    )}
-
-                    {r.document_url && (
-                      <div style={{ marginTop: "0.75rem" }}>
-                        <a href={r.document_url} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, background: NAVY, color: WHITE, borderRadius: 4, padding: "0.45rem 1rem", fontSize: "0.78rem", fontWeight: 700, textDecoration: "none", textTransform: "uppercase" as const, letterSpacing: "0.04em" }}>
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                          View Documentation
-                        </a>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })
-        )}
-
-        <div style={{ marginTop: "1rem", fontSize: "0.72rem", color: MUTED, textAlign: "center" }}>
-          Allied Universal Security Services &nbsp;·&nbsp; Washington University &nbsp;·&nbsp; Keep all completed forms on file for audit purposes.
+          <div style={{ borderTop: `1px solid ${BORDER}`, marginTop: "2rem", padding: "0.85rem 2rem 0", fontSize: "0.72rem", color: MUTED, textAlign: "center" as const }}>
+            Allied Universal Security Services &nbsp;·&nbsp; Washington University &nbsp;·&nbsp; All submissions are timestamped and logged.
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-const inputStyle: React.CSSProperties = {
-  width: "100%", boxSizing: "border-box", padding: "0.5rem 0.75rem",
-  border: "1px solid #d1d5db", borderRadius: 4, fontSize: "0.88rem",
-  color: "#1a1a2e", background: "#fafbfc", outline: "none", fontFamily: "inherit",
-  marginBottom: "0.25rem",
-};
+function SectionBar({ label }: { label: string }) {
+  return <div style={{ background: DARK, padding: "0.55rem 2rem", color: "#ffffff", fontSize: "0.75rem", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", marginTop: "1.5rem" }}>{label}</div>;
+}
+
+function Label({ children }: { children: React.ReactNode }) {
+  return <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>{children}</div>;
+}
+
+function Field({ label, value, onChange, placeholder, type = "text", required: req }: { label: string; value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; placeholder?: string; type?: string; required?: boolean; }) {
+  return (
+    <div style={{ marginBottom: "1rem" }}>
+      <Label>{label}{req && <span style={{ color: "#b3261e", marginLeft: 2 }}>*</span>}</Label>
+      <input type={type} value={value} onChange={onChange} placeholder={placeholder} style={inputStyle} />
+    </div>
+  );
+}
+
+function Row({ children }: { children: React.ReactNode }) {
+  return <div style={{ display: "flex", gap: "1rem" }}>{Array.isArray(children) ? children.map((child, i) => <div key={i} style={{ flex: 1 }}>{child}</div>) : <div style={{ flex: 1 }}>{children}</div>}</div>;
+}
+
+const inputStyle: React.CSSProperties = { width: "100%", boxSizing: "border-box", padding: "0.5rem 0.75rem", border: "1px solid #d1d5db", borderRadius: 4, fontSize: "0.88rem", color: "#1a1a2e", background: "#fafbfc", outline: "none", fontFamily: "inherit" };
+
+function btnStyle(bg: string): React.CSSProperties {
+  return { background: bg, color: "#ffffff", border: "none", borderRadius: 4, padding: "0.7rem 1.75rem", fontSize: "0.85rem", fontWeight: 700, letterSpacing: "0.04em", cursor: "pointer", fontFamily: "inherit", textTransform: "uppercase", width: "100%" };
+}
