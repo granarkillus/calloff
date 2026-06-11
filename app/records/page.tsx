@@ -16,6 +16,7 @@ const WHITE = "#ffffff";
 const MUTED = "#6b7280";
 const BORDER = "#d1d5db";
 const TEXT = "#1a1a2e";
+const GREEN = "#2f6b3a";
 
 interface CallOff {
   id: string;
@@ -33,6 +34,7 @@ interface CallOff {
   signature: string;
   document_url: string;
   submitted_at: string;
+  excusal_status: string;
 }
 
 export default function CallOffRecords() {
@@ -41,6 +43,7 @@ export default function CallOffRecords() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [updating, setUpdating] = useState<string | null>(null);
 
   useEffect(() => {
     const supabase = getSupabase();
@@ -53,6 +56,20 @@ export default function CallOffRecords() {
         setLoading(false);
       });
   }, []);
+
+  const updateExcusalStatus = async (id: string, status: string) => {
+    setUpdating(id + status);
+    const supabase = getSupabase();
+    const { error } = await supabase
+      .from("calloff_submissions")
+      .update({ excusal_status: status })
+      .eq("id", id);
+
+    if (!error) {
+      setRecords((prev) => prev.map((r) => r.id === id ? { ...r, excusal_status: status } : r));
+    }
+    setUpdating(null);
+  };
 
   const formatDate = (iso: string) => {
     if (!iso) return "";
@@ -69,6 +86,21 @@ export default function CallOffRecords() {
     });
   };
 
+  const excusalBadge = (status: string) => {
+    const s = status || "pending";
+    const styles: Record<string, { bg: string; color: string; border: string; label: string }> = {
+      pending: { bg: "#fff3cd", color: "#92400e", border: "#fcd34d", label: "Pending Review" },
+      excused: { bg: "#e8f5e9", color: GREEN, border: "#a5d6a7", label: "Excused" },
+      unexcused: { bg: "#fef2f2", color: "#b91c1c", border: "#fca5a5", label: "Unexcused" },
+    };
+    const style = styles[s] || styles.pending;
+    return (
+      <span style={{ fontSize: "0.68rem", fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: style.bg, color: style.color, border: `1px solid ${style.border}`, textTransform: "uppercase" as const, letterSpacing: "0.04em" }}>
+        {style.label}
+      </span>
+    );
+  };
+
   const filtered = records.filter((r) => {
     const matchesSearch = !search ||
       r.officer_name?.toLowerCase().includes(search.toLowerCase()) ||
@@ -78,18 +110,22 @@ export default function CallOffRecords() {
       filter === "all" ||
       (filter === "less4" && r.notice_type?.includes("Less than")) ||
       (filter === "4plus" && r.notice_type?.includes("4+")) ||
-      (filter === "docs" && !!r.document_url);
+      (filter === "docs" && !!r.document_url) ||
+      (filter === "pending" && (!r.excusal_status || r.excusal_status === "pending")) ||
+      (filter === "excused" && r.excusal_status === "excused") ||
+      (filter === "unexcused" && r.excusal_status === "unexcused");
     return matchesSearch && matchesFilter;
   });
 
   const less4 = records.filter((r) => r.notice_type?.includes("Less than")).length;
   const withDocs = records.filter((r) => !!r.document_url).length;
+  const pendingReview = records.filter((r) => !r.excusal_status || r.excusal_status === "pending").length;
+  const unexcused = records.filter((r) => r.excusal_status === "unexcused").length;
 
   return (
     <div style={{ minHeight: "100vh", background: SOFT_BG, fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", padding: "2rem 1rem" }}>
       <div style={{ maxWidth: 900, margin: "0 auto" }}>
 
-        {/* Header */}
         <div style={{ background: NAVY, padding: "1.25rem 2rem", borderRadius: "4px 4px 0 0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <div style={{ color: WHITE, fontSize: "1rem", fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase" }}>
@@ -102,26 +138,28 @@ export default function CallOffRecords() {
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
               Dashboard
             </a>
-            <div style={{ color: WHITE, fontSize: "0.95rem", fontWeight: 700 }}>Call-Off Records</div>
-            <div style={{ color: "rgba(255,255,255,0.7)", fontSize: "0.75rem" }}>Washington University</div>
+            <div>
+              <div style={{ color: WHITE, fontSize: "0.95rem", fontWeight: 700 }}>Call-Off Records</div>
+              <div style={{ color: "rgba(255,255,255,0.7)", fontSize: "0.75rem" }}>Washington University</div>
+            </div>
           </div>
         </div>
 
-        {/* Summary bar */}
         <div style={{ background: DARK, padding: "0.75rem 2rem", display: "flex", gap: "2rem", flexWrap: "wrap", alignItems: "center" }}>
           {[
             ["Total", records.length],
+            ["Pending Review", pendingReview],
+            ["Unexcused", unexcused],
             ["< 4 Hour Notice", less4],
             ["With Documentation", withDocs],
           ].map(([label, val]) => (
             <div key={label as string}>
               <div style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.65rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</div>
-              <div style={{ color: WHITE, fontSize: "1.1rem", fontWeight: 700 }}>{val}</div>
+              <div style={{ color: label === "Unexcused" ? "#fca5a5" : label === "Pending Review" ? "#fcd34d" : WHITE, fontSize: "1.1rem", fontWeight: 700 }}>{val}</div>
             </div>
           ))}
         </div>
 
-        {/* Filters */}
         <div style={{ background: WHITE, border: `1px solid ${BORDER}`, borderTop: "none", padding: "1rem 2rem", display: "flex", gap: "1rem", flexWrap: "wrap", alignItems: "center" }}>
           <input
             value={search}
@@ -132,8 +170,11 @@ export default function CallOffRecords() {
           <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
             {[
               ["all", "All"],
-              ["4plus", "4+ Hour Notice"],
-              ["less4", "< 4 Hour Notice"],
+              ["pending", "Pending"],
+              ["excused", "Excused"],
+              ["unexcused", "Unexcused"],
+              ["4plus", "4+ hr"],
+              ["less4", "< 4hr"],
               ["docs", "With Docs"],
             ].map(([val, label]) => (
               <button key={val} onClick={() => setFilter(val)} style={{
@@ -149,7 +190,6 @@ export default function CallOffRecords() {
           </div>
         </div>
 
-        {/* Records */}
         {loading ? (
           <div style={{ background: WHITE, border: `1px solid ${BORDER}`, borderTop: "none", padding: "2rem", textAlign: "center", color: MUTED, fontSize: "0.85rem" }}>
             Loading records...
@@ -159,9 +199,10 @@ export default function CallOffRecords() {
             No call-off records found.
           </div>
         ) : (
-          filtered.map((r, i) => {
+          filtered.map((r) => {
             const isLess4 = r.notice_type?.includes("Less than");
             const isExpanded = expanded === r.id;
+            const excusalStatus = r.excusal_status || "pending";
 
             return (
               <div key={r.id} style={{ background: WHITE, border: `1px solid ${BORDER}`, borderTop: "none" }}>
@@ -170,12 +211,13 @@ export default function CallOffRecords() {
                   style={{ padding: "1rem 2rem", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem", flexWrap: "wrap", cursor: "pointer" }}
                 >
                   <div style={{ flex: 1 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: 4, flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: 4, flexWrap: "wrap" }}>
                       <span style={{ fontWeight: 700, fontSize: "0.92rem", color: TEXT }}>{r.officer_name}</span>
+                      {excusalBadge(excusalStatus)}
                       <span style={{
                         fontSize: "0.68rem", fontWeight: 700, padding: "2px 8px", borderRadius: 999,
                         background: isLess4 ? "#fef2f2" : "#e8f5e9",
-                        color: isLess4 ? "#b91c1c" : "#2f6b3a",
+                        color: isLess4 ? "#b91c1c" : GREEN,
                         border: `1px solid ${isLess4 ? "#fca5a5" : "#a5d6a7"}`,
                         textTransform: "uppercase" as const, letterSpacing: "0.04em",
                       }}>
@@ -188,24 +230,62 @@ export default function CallOffRecords() {
                       )}
                     </div>
                     <div style={{ fontSize: "0.78rem", color: MUTED }}>
-                      {r.post} &nbsp;·&nbsp; {formatDate(r.shift_date)} {r.shift_start && `@ ${r.shift_start}`}{r.shift_end && ` – ${r.shift_end}`} &nbsp;·&nbsp; {r.reason}
+                      {r.post} &nbsp;·&nbsp; {formatDate(r.shift_date)}{r.shift_start && ` @ ${r.shift_start}`}{r.shift_end && ` – ${r.shift_end}`} &nbsp;·&nbsp; {r.reason}
                     </div>
                     <div style={{ fontSize: "0.72rem", color: MUTED, marginTop: 2 }}>
                       Submitted: {formatDateTime(r.submitted_at)}
                     </div>
                   </div>
-                  <svg
-                    width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={MUTED} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-                    style={{ transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s", flexShrink: 0 }}
-                  >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={MUTED} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                    style={{ transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s", flexShrink: 0 }}>
                     <polyline points="9 18 15 12 9 6" />
                   </svg>
                 </div>
 
-                {/* Expanded detail */}
                 {isExpanded && (
-                  <div style={{ padding: "0 2rem 1.25rem", borderTop: `1px solid ${BORDER}`, background: SOFT_BG }}>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem 2rem", paddingTop: "1rem" }}>
+                  <div style={{ padding: "0 2rem 1.5rem", borderTop: `1px solid ${BORDER}`, background: SOFT_BG }}>
+
+                    {/* Excusal status buttons */}
+                    <div style={{ paddingTop: "1rem", marginBottom: "1.25rem" }}>
+                      <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.6rem" }}>
+                        Excusal Classification
+                      </div>
+                      <div style={{ display: "flex", gap: "0.5rem" }}>
+                        {[
+                          { val: "excused", label: "Excused", activeColor: GREEN, activeBg: "#e8f5e9", activeBorder: "#a5d6a7" },
+                          { val: "unexcused", label: "Unexcused", activeColor: "#b91c1c", activeBg: "#fef2f2", activeBorder: "#fca5a5" },
+                          { val: "pending", label: "Pending Review", activeColor: "#92400e", activeBg: "#fff3cd", activeBorder: "#fcd34d" },
+                        ].map(({ val, label, activeColor, activeBg, activeBorder }) => {
+                          const isActive = excusalStatus === val;
+                          const isLoading = updating === r.id + val;
+                          return (
+                            <button
+                              key={val}
+                              onClick={(e) => { e.stopPropagation(); updateExcusalStatus(r.id, val); }}
+                              disabled={!!updating}
+                              style={{
+                                padding: "0.45rem 1rem", borderRadius: 4, fontSize: "0.78rem", fontWeight: 700,
+                                border: `1.5px solid ${isActive ? activeBorder : BORDER}`,
+                                background: isActive ? activeBg : WHITE,
+                                color: isActive ? activeColor : MUTED,
+                                cursor: updating ? "not-allowed" : "pointer",
+                                fontFamily: "inherit", transition: "all 0.15s",
+                                opacity: isLoading ? 0.6 : 1,
+                              }}
+                            >
+                              {isLoading ? "..." : (isActive ? `✓ ${label}` : label)}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {excusalStatus === "unexcused" && (
+                        <div style={{ marginTop: "0.6rem", background: "#fef2f2", border: "1px solid #fca5a5", borderLeft: "3px solid #b91c1c", borderRadius: 3, padding: "0.5rem 0.75rem", fontSize: "0.75rem", color: "#b91c1c", fontWeight: 600 }}>
+                          Unexcused absence — disciplinary action may apply per AUS attendance policy.
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem 2rem" }}>
                       {[
                         ["Officer", r.officer_name],
                         ["Employee #", r.employee_number],
@@ -226,12 +306,14 @@ export default function CallOffRecords() {
                         </div>
                       ) : null)}
                     </div>
+
                     {r.comments && (
                       <div style={{ marginTop: "0.75rem" }}>
                         <div style={{ fontSize: "0.65rem", fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.05em", color: MUTED, marginBottom: 2 }}>Comments</div>
                         <div style={{ fontSize: "0.85rem", color: TEXT, background: WHITE, border: `1px solid ${BORDER}`, borderRadius: 3, padding: "0.5rem 0.75rem" }}>{r.comments}</div>
                       </div>
                     )}
+
                     {r.document_url && (
                       <div style={{ marginTop: "0.75rem" }}>
                         <a href={r.document_url} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, background: NAVY, color: WHITE, borderRadius: 4, padding: "0.45rem 1rem", fontSize: "0.78rem", fontWeight: 700, textDecoration: "none", textTransform: "uppercase" as const, letterSpacing: "0.04em" }}>
