@@ -168,15 +168,17 @@ This call-off was officially submitted via the AUS portal.`;
             <div style={{ background: SOFT_BG, border: `1px solid ${BORDER}`, borderRadius: 4, padding: "1rem", marginBottom: "1rem", fontSize: "0.82rem", color: TEXT, lineHeight: 1.7, whiteSpace: "pre-wrap", fontFamily: "monospace" }}>
               {getCopyMessage()}
             </div>
-            <button onClick={handleCopy} style={{ ...btnStyle(copySuccess ? GREEN : NAVY), marginBottom: "0.75rem", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-              {copySuccess ? "✓ Copied!" : "Copy Message"}
-            </button>
-            <a href={`sms:${encodeURIComponent(getCopyMessage())}`} style={{ ...btnStyle("#374151"), display: "flex", alignItems: "center", justifyContent: "center", gap: 8, textDecoration: "none", marginBottom: "0.75rem" }}>
-              Open in Messages
-            </a>
-            <div style={{ fontSize: "0.75rem", color: MUTED, textAlign: "center", marginBottom: "1rem", lineHeight: 1.5 }}>
-              Copy the message above and paste it to your supervisor in any chat app, or tap "Open in Messages" if you're on iPhone.
+            <div style={{ background: "#fef2f2", border: "1.5px solid #fca5a5", borderLeft: "4px solid #b91c1c", borderRadius: 4, padding: "0.85rem 1rem", marginBottom: "1rem" }}>
+              <div style={{ fontSize: "0.85rem", fontWeight: 800, color: "#b91c1c", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.03em" }}>
+                ⚠ Required — Notify Your Supervisor
+              </div>
+              <div style={{ fontSize: "0.85rem", color: "#7f1d1d", lineHeight: 1.5, fontWeight: 600 }}>
+                Submitting this form does not notify your supervisor. You must copy the message below and send it to your supervisor directly to complete the call-off protocol.
+              </div>
             </div>
+            <button onClick={handleCopy} style={{ ...btnStyle(copySuccess ? GREEN : NAVY), marginBottom: "1rem", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+              {copySuccess ? "✓ Copied — Now Send This to Your Supervisor" : "Copy Message to Send to Supervisor"}
+            </button>
             <button onClick={handleReset} style={{ ...btnStyle("transparent"), color: MUTED, border: `1px solid ${BORDER}`, fontSize: "0.78rem" }}>Submit Another</button>
           </div>
         </div>
