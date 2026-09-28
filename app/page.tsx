@@ -125,7 +125,7 @@ export default function CallOffForm() {
 
   const getCopyMessage = () => {
     if (!submittedData) return "";
-    return `CALL-OFF NOTICE — ${submittedData.shiftDate}
+    return `CALL-OFF RECEIPT — ${submittedData.shiftDate}
 
 Name: ${submittedData.name}
 Post: ${submittedData.post}
@@ -134,7 +134,7 @@ Reason: ${submittedData.reason}
 Notice Type: ${submittedData.noticeType}
 Submitted: ${submittedData.timestamp}
 
-This call-off was officially submitted via the AUS portal.`;
+Your supervisor has been notified by email.`;
   };
 
   const handleCopy = () => {
@@ -170,19 +170,15 @@ This call-off was officially submitted via the AUS portal.`;
                 <div style={{ fontSize: "0.78rem", color: MUTED }}>{submittedData.timestamp}</div>
               </div>
             </div>
+            <div style={{ background: "#e8f5e9", border: "1px solid #b7dcbf", borderLeft: `4px solid ${GREEN}`, borderRadius: 4, padding: "0.85rem 1rem", marginBottom: "1rem", fontSize: "0.85rem", color: "#1e4d27", lineHeight: 1.5 }}>
+              Your supervisor has been emailed your call-off. Thank you for your submission. Keep the receipt below for your records.
+            </div>
+            <div style={{ fontSize: "0.72rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Your Receipt</div>
             <div style={{ background: SOFT_BG, border: `1px solid ${BORDER}`, borderRadius: 4, padding: "1rem", marginBottom: "1rem", fontSize: "0.82rem", color: TEXT, lineHeight: 1.7, whiteSpace: "pre-wrap", fontFamily: "monospace" }}>
               {getCopyMessage()}
             </div>
-            <div style={{ background: "#fef2f2", border: "1.5px solid #fca5a5", borderLeft: "4px solid #b91c1c", borderRadius: 4, padding: "0.85rem 1rem", marginBottom: "1rem" }}>
-              <div style={{ fontSize: "0.85rem", fontWeight: 800, color: "#b91c1c", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.03em" }}>
-                ⚠ Required — Notify Your Supervisor
-              </div>
-              <div style={{ fontSize: "0.85rem", color: "#7f1d1d", lineHeight: 1.5, fontWeight: 600 }}>
-                Submitting this form does not notify your supervisor. You must copy the message below and send it to your supervisor directly to complete the call-off protocol.
-              </div>
-            </div>
             <button onClick={handleCopy} style={{ ...btnStyle(copySuccess ? GREEN : NAVY), marginBottom: "1rem", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-              {copySuccess ? "✓ Copied — Now Send This to Your Supervisor" : "Copy Message to Send to Supervisor"}
+              {copySuccess ? "✓ Receipt Copied" : "Copy Receipt"}
             </button>
             <button onClick={handleReset} style={{ ...btnStyle("transparent"), color: MUTED, border: `1px solid ${BORDER}`, fontSize: "0.78rem" }}>Submit Another</button>
           </div>
@@ -291,7 +287,7 @@ This call-off was officially submitted via the AUS portal.`;
           <SectionBar label="Signature" />
           <div style={{ padding: "1.25rem 2rem 0" }}>
             <div style={{ fontSize: "0.82rem", color: TEXT, lineHeight: 1.6, marginBottom: "1rem", background: SOFT_BG, border: `1px solid ${BORDER}`, borderLeft: `3px solid ${NAVY}`, borderRadius: 3, padding: "0.65rem 1rem" }}>
-              By signing below, I confirm that the information provided is accurate and that I will notify my supervisor of this absence in accordance with AUS attendance policy.
+              By signing below, I confirm that the information provided is accurate and submitted in accordance with AUS attendance policy. My supervisor will be notified by email.
             </div>
             <Field label="Signature (type full name)" value={form.signature} onChange={set("signature")} placeholder="Full legal name" required />
             {error && <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 4, padding: "0.75rem 1rem", fontSize: "0.82rem", color: "#b91c1c", marginBottom: "1rem" }}>{error}</div>}
