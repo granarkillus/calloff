@@ -19,7 +19,8 @@ const TEXT = "#1a1a2e";
 const GREEN = "#2f6b3a";
 
 export default function CallOffForm() {
-  const today = new Date().toISOString().split("T")[0];
+  // Today's date in St. Louis (toISOString is UTC, which rolls to tomorrow in the evening).
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
 
   const [form, setForm] = useState({
     officerName: "",
@@ -68,18 +69,22 @@ export default function CallOffForm() {
 
     const supabase = getSupabase();
     const timestamp = new Date().toISOString();
-    let docUrl = null;
+    let docUrl: string | null = null;
 
     if (file) {
-      const fileExt = file.name.split(".").pop();
-      const fileName = `calloff-${Date.now()}-${form.officerName.replace(/\s+/g, "-")}.${fileExt}`;
+      // Documents are private: store the file's path; supervisors open it with a signed link.
+      const fileExt = (file.name.split(".").pop() || "").replace(/[^A-Za-z0-9]/g, "");
+      const safeName = form.officerName.trim().replace(/[^A-Za-z0-9]+/g, "-");
+      const fileName = `calloff-${Date.now()}-${safeName}.${fileExt}`;
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from("calloff-documents")
         .upload(fileName, file, { cacheControl: "3600", upsert: false });
-      if (!uploadError && uploadData) {
-        const { data: urlData } = supabase.storage.from("calloff-documents").getPublicUrl(fileName);
-        docUrl = urlData?.publicUrl || null;
+      if (uploadError || !uploadData) {
+        setError("Your document didn't upload. Try again, or remove it to submit without it.");
+        setSubmitting(false);
+        return;
       }
+      docUrl = fileName;
     }
 
     const reason = form.reason === "Other" ? form.otherReason : form.reason;
@@ -286,7 +291,7 @@ This call-off was officially submitted via the AUS portal.`;
           <SectionBar label="Signature" />
           <div style={{ padding: "1.25rem 2rem 0" }}>
             <div style={{ fontSize: "0.82rem", color: TEXT, lineHeight: 1.6, marginBottom: "1rem", background: SOFT_BG, border: `1px solid ${BORDER}`, borderLeft: `3px solid ${NAVY}`, borderRadius: 3, padding: "0.65rem 1rem" }}>
-              By signing below, I confirm that the information provided is accurate and that I have notified my supervisor of this absence in accordance with AUS attendance policy.
+              By signing below, I confirm that the information provided is accurate and that I will notify my supervisor of this absence in accordance with AUS attendance policy.
             </div>
             <Field label="Signature (type full name)" value={form.signature} onChange={set("signature")} placeholder="Full legal name" required />
             {error && <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 4, padding: "0.75rem 1rem", fontSize: "0.82rem", color: "#b91c1c", marginBottom: "1rem" }}>{error}</div>}
