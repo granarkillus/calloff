@@ -112,7 +112,7 @@ async function sendEmail(r: CallOffRecord) {
       .join("")}
   </table>
   <div style="padding:14px 18px;">
-    <a href="https://supervisor.xing.wtf/calloffs" style="background:#1f4e79;color:#fff;text-decoration:none;padding:9px 16px;border-radius:4px;font-weight:700;font-size:13px;">
+    <a href="https://portal.xing.wtf/supervisor/calloffs" style="background:#1f4e79;color:#fff;text-decoration:none;padding:9px 16px;border-radius:4px;font-weight:700;font-size:13px;">
       Review in Supervisor Portal
     </a>
   </div>
